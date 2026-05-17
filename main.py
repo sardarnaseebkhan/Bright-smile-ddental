@@ -19,7 +19,12 @@ app.include_router(vapi_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    import os
+    return {
+        "status": "ok",
+        "resend_configured": bool(os.getenv("RESEND_API_KEY", "")),
+        "from_email": os.getenv("FROM_EMAIL", "not_set"),
+    }
 
 
 if __name__ == "__main__":
