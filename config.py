@@ -11,13 +11,10 @@ class Settings(BaseSettings):
     google_calendar_id: str = "skip"
     google_service_account_json: str = "./credentials/google-service-account.json"
 
-    # Email (Gmail SMTP)
+    # Email (Resend HTTP API)
+    resend_api_key: str = ""
     clinic_owner_email: str = "khannn762@gmail.com"
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 465
-    smtp_user: str = "naseebullah700000@gmail.com"
-    smtp_password: str = ""
-    from_email: str = "naseebullah700000@gmail.com"
+    from_email: str = "onboarding@resend.dev"
 
     # Clinic info
     clinic_name: str = "Bright Smiles Dental"
