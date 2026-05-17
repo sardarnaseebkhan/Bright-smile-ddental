@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 RESEND_URL = "https://api.resend.com/emails"
 # Use `or` so an empty-string env var still falls back to the hardcoded default
 _RESEND_KEY = os.environ.get("RESEND_API_KEY") or "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
-_FROM_EMAIL = os.environ.get("FROM_EMAIL") or "onboarding@resend.dev"
+_FROM_EMAIL = "onboarding@resend.dev"  # Resend free-tier verified sender
 
 
 def _format_dt(iso_str: str) -> str:
