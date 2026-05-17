@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # Email (Resend HTTP API)
     resend_api_key: str = "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
-    clinic_owner_email: str = "khannn762@gmail.com"
+    clinic_owner_email: str = "naseebullah700000@gmail.com"  # Resend free tier: must be account email until domain verified
     from_email: str = "onboarding@resend.dev"
 
     # Clinic info
