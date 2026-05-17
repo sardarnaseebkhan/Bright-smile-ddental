@@ -95,7 +95,10 @@ async def send_email_notification(
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(RESEND_URL, json=payload, headers=headers)
-            r.raise_for_status()
+            if not r.is_success:
+                body = r.text[:300]
+                logger.error(f"Resend {r.status_code}: {body}")
+                return {"success": False, "error": f"Resend {r.status_code}: {body}"}
             email_id = r.json().get("id", "")
             logger.info(f"Email sent via Resend to {settings.clinic_owner_email}, id={email_id}")
             return {"success": True, "to": settings.clinic_owner_email, "email_id": email_id}
