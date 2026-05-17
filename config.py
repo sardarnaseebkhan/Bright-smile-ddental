@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     google_service_account_json: str = "./credentials/google-service-account.json"
 
     # Email (Resend HTTP API)
-    resend_api_key: str = ""
+    resend_api_key: str = "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
     clinic_owner_email: str = "khannn762@gmail.com"
     from_email: str = "onboarding@resend.dev"
 
