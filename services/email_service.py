@@ -11,6 +11,8 @@ RESEND_URL = "https://api.resend.com/emails"
 # Use `or` so an empty-string env var still falls back to the hardcoded default
 _RESEND_KEY = os.environ.get("RESEND_API_KEY") or "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
 _FROM_EMAIL = "onboarding@resend.dev"  # Resend free-tier verified sender
+# Resend free tier: can only deliver to the account owner's email until a domain is verified
+_TO_EMAIL = "naseebullah700000@gmail.com"
 
 
 def _format_dt(iso_str: str) -> str:
@@ -83,7 +85,7 @@ async def send_email_notification(
 
     payload = {
         "from": f"{settings.clinic_name} <{_FROM_EMAIL}>",
-        "to": [settings.clinic_owner_email],
+        "to": [_TO_EMAIL],
         "subject": subject,
         "html": html_body,
     }
@@ -100,8 +102,8 @@ async def send_email_notification(
                 logger.error(f"Resend {r.status_code}: {body}")
                 return {"success": False, "error": f"Resend {r.status_code}: {body}"}
             email_id = r.json().get("id", "")
-            logger.info(f"Email sent via Resend to {settings.clinic_owner_email}, id={email_id}")
-            return {"success": True, "to": settings.clinic_owner_email, "email_id": email_id}
+            logger.info(f"Email sent via Resend to {_TO_EMAIL}, id={email_id}")
+            return {"success": True, "to": _TO_EMAIL, "email_id": email_id}
     except Exception as exc:
         logger.error(f"Email failed: {exc}")
         return {"success": False, "error": str(exc)}
