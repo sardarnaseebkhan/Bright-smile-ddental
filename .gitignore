@@ -9,3 +9,7 @@ venv/
 dist/
 build/
 .pytest_cache/
+cloudflared.exe
+ngrok.exe
+*.exe
+appointments.json
