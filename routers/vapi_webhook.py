@@ -99,30 +99,36 @@ async def setup_gemini():
     results = {}
 
     async with httpx.AsyncClient(timeout=20) as client:
-        # Step 1: Add Google credential to VAPI
+        PROVIDER_KEY = os.environ.get("NEW_LLM_KEY", "")
+        PROVIDER = os.environ.get("NEW_LLM_PROVIDER", "togetherai")
+        MODEL = os.environ.get("NEW_LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+
+        if not PROVIDER_KEY:
+            return JSONResponse({"error": "NEW_LLM_KEY env var not set on Railway"}, status_code=400)
+
+        # Step 1: Add credential to VAPI
         cred_resp = await client.post(
             "https://api.vapi.ai/credential",
             headers=VAPI_HEADERS,
-            json={"provider": "google", "apiKey": GOOGLE_KEY},
+            json={"provider": PROVIDER, "apiKey": PROVIDER_KEY},
         )
         if cred_resp.status_code in (200, 201):
             results["credential"] = "added"
         elif cred_resp.status_code == 409:
-            # Already exists — update it
             creds = await client.get("https://api.vapi.ai/credential", headers=VAPI_HEADERS)
             cred_list = creds.json() if isinstance(creds.json(), list) else creds.json().get("data", [])
-            google_cred = next((c for c in cred_list if c.get("provider") == "google"), None)
-            if google_cred:
+            cred = next((c for c in cred_list if c.get("provider") == PROVIDER), None)
+            if cred:
                 await client.patch(
-                    f"https://api.vapi.ai/credential/{google_cred['id']}",
+                    f"https://api.vapi.ai/credential/{cred['id']}",
                     headers=VAPI_HEADERS,
-                    json={"apiKey": GOOGLE_KEY},
+                    json={"apiKey": PROVIDER_KEY},
                 )
             results["credential"] = "updated"
         else:
             results["credential"] = f"error {cred_resp.status_code}: {cred_resp.text[:200]}"
 
-        # Step 2: Find Nova assistant and switch model
+        # Step 2: Switch Nova assistant model
         resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
         resp.raise_for_status()
         asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
@@ -137,8 +143,8 @@ async def setup_gemini():
             headers=VAPI_HEADERS,
             json={
                 "model": {
-                    "provider": "google",
-                    "model": "gemini-2.0-flash",
+                    "provider": PROVIDER,
+                    "model": MODEL,
                     "systemPrompt": old_model.get("systemPrompt", ""),
                     "temperature": 0.7,
                     "tools": old_model.get("tools", []),
