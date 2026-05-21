@@ -92,16 +92,44 @@ async def vapi_webhook(request: Request):
     return JSONResponse({})
 
 
-@router.post("/admin/switch-to-gemini")
-async def switch_to_gemini():
-    """One-time endpoint: patches the VAPI assistant to use Google Gemini 2.0 Flash."""
+@router.post("/admin/setup-gemini")
+async def setup_gemini():
+    """One-time: adds Google credential to VAPI and switches assistant to Gemini 2.0 Flash."""
+    GOOGLE_KEY = "AIzaSyDusPEKrsIDUx_kKSh2r6Ybxok8gvBhE6w"
+    results = {}
+
     async with httpx.AsyncClient(timeout=20) as client:
+        # Step 1: Add Google credential to VAPI
+        cred_resp = await client.post(
+            "https://api.vapi.ai/credential",
+            headers=VAPI_HEADERS,
+            json={"provider": "google", "apiKey": GOOGLE_KEY},
+        )
+        if cred_resp.status_code in (200, 201):
+            results["credential"] = "added"
+        elif cred_resp.status_code == 409:
+            # Already exists — update it
+            creds = await client.get("https://api.vapi.ai/credential", headers=VAPI_HEADERS)
+            cred_list = creds.json() if isinstance(creds.json(), list) else creds.json().get("data", [])
+            google_cred = next((c for c in cred_list if c.get("provider") == "google"), None)
+            if google_cred:
+                await client.patch(
+                    f"https://api.vapi.ai/credential/{google_cred['id']}",
+                    headers=VAPI_HEADERS,
+                    json={"apiKey": GOOGLE_KEY},
+                )
+            results["credential"] = "updated"
+        else:
+            results["credential"] = f"error {cred_resp.status_code}: {cred_resp.text[:200]}"
+
+        # Step 2: Find Nova assistant and switch model
         resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
         resp.raise_for_status()
         asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
         nova = next((a for a in asst_list if "Nova" in a.get("name", "")), None)
         if not nova:
-            return JSONResponse({"error": "No Nova assistant found"}, status_code=404)
+            results["assistant"] = "error: Nova not found"
+            return JSONResponse(results, status_code=404)
 
         old_model = nova.get("model", {})
         patch = await client.patch(
@@ -119,4 +147,6 @@ async def switch_to_gemini():
         )
         patch.raise_for_status()
         m = patch.json().get("model", {})
-        return JSONResponse({"updated": True, "provider": m.get("provider"), "model": m.get("model")})
+        results["assistant"] = f"{m.get('provider')}/{m.get('model')}"
+
+    return JSONResponse(results)
