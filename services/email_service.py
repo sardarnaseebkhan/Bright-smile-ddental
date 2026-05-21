@@ -75,6 +75,7 @@ async def send_email_notification(
     is_new_patient: bool = False,
     notes: str = "",
     google_calendar_event_id: str = "",
+    to_email: str = "",
 ) -> dict:
     formatted_dt = _format_dt(appointment_datetime)
     subject = f"New Appointment: {patient_name} — {formatted_dt}"
@@ -83,9 +84,10 @@ async def send_email_notification(
         appointment_type, is_new_patient, notes, google_calendar_event_id,
     )
 
+    recipient = to_email or _TO_EMAIL
     payload = {
         "from": f"{settings.clinic_name} <{_FROM_EMAIL}>",
-        "to": [_TO_EMAIL],
+        "to": [recipient],
         "subject": subject,
         "html": html_body,
     }
@@ -102,8 +104,8 @@ async def send_email_notification(
                 logger.error(f"Resend {r.status_code}: {body}")
                 return {"success": False, "error": f"Resend {r.status_code}: {body}"}
             email_id = r.json().get("id", "")
-            logger.info(f"Email sent via Resend to {_TO_EMAIL}, id={email_id}")
-            return {"success": True, "to": _TO_EMAIL, "email_id": email_id}
+            logger.info(f"Email sent via Resend to {recipient}, id={email_id}")
+            return {"success": True, "to": recipient, "email_id": email_id}
     except Exception as exc:
         logger.error(f"Email failed: {exc}")
         return {"success": False, "error": str(exc)}

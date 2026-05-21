@@ -47,11 +47,16 @@ OR_HEADERS = {
     "X-Title": "Nova Dental Voice Agent",
 }
 
-TOOL_EXECUTORS = {
-    "check_available_slots": execute_check_available_slots,
-    "book_appointment": execute_book_appointment,
-    "send_email_notification": execute_send_email_notification,
-}
+def _make_executors(owner_email: str = "") -> dict:
+    """Return tool executor map bound to a specific business's owner email."""
+    async def _book(args):
+        return await execute_book_appointment(args, owner_email=owner_email)
+
+    return {
+        "check_available_slots": execute_check_available_slots,
+        "book_appointment": _book,
+        "send_email_notification": execute_send_email_notification,
+    }
 
 TOOL_DEFINITIONS = [
     {
@@ -148,8 +153,10 @@ async def _call_openrouter(messages: list) -> dict | None:
     return None
 
 
-async def _run_tool_loop(messages: list):
+async def _run_tool_loop(messages: list, executors: dict = None):
     """Execute the tool-calling loop, then stream the final response."""
+    if executors is None:
+        executors = _make_executors()
     for _ in range(5):
         response = await _call_openrouter(messages)
         if response is None:
@@ -174,7 +181,7 @@ async def _run_tool_loop(messages: list):
             fn_name = tc.get("function", {}).get("name", "")
             fn_args_str = tc.get("function", {}).get("arguments", "{}")
             tc_id = tc.get("id", "tc_0")
-            executor = TOOL_EXECUTORS.get(fn_name)
+            executor = executors.get(fn_name)
             if executor:
                 try:
                     args = json.loads(fn_args_str)
@@ -197,13 +204,31 @@ async def _run_tool_loop(messages: list):
     yield _sse_text("I'm sorry, I'm having trouble connecting right now. Please try again in a moment.")
 
 
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+@router.post("/{business_id}/v1/chat/completions")
+async def chat_completions_mt(business_id: str, request: Request):
+    import db as _db
+    biz = _db.get(business_id)
+    owner_email = biz["owner_email"] if biz else ""
+    body = await request.json()
+    return StreamingResponse(
+        _run_tool_loop(body.get("messages", []), _make_executors(owner_email)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
+    """Backward-compat route — defaults to bright-smiles."""
+    import db as _db
+    biz = _db.get("bright-smiles")
+    owner_email = biz["owner_email"] if biz else ""
     body = await request.json()
-    messages = body.get("messages", [])
-
     return StreamingResponse(
-        _run_tool_loop(messages),
+        _run_tool_loop(body.get("messages", []), _make_executors(owner_email)),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers=_SSE_HEADERS,
     )

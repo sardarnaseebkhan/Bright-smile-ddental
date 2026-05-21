@@ -2,7 +2,7 @@ from services.google_calendar import book_appointment as _book
 from services.email_service import send_email_notification as _send_email
 
 
-async def execute_book_appointment(tool_input: dict) -> dict:
+async def execute_book_appointment(tool_input: dict, owner_email: str = "") -> dict:
     result = await _book(
         patient_name=tool_input["patient_name"],
         patient_phone=tool_input["patient_phone"],
@@ -13,7 +13,7 @@ async def execute_book_appointment(tool_input: dict) -> dict:
         notes=tool_input.get("notes", ""),
     )
 
-    # Always send email immediately after booking — don't rely on LLM to call the tool
+    # Always fire email right after booking — never rely on LLM to call the tool
     try:
         await _send_email(
             patient_name=tool_input["patient_name"],
@@ -23,8 +23,9 @@ async def execute_book_appointment(tool_input: dict) -> dict:
             is_new_patient=tool_input.get("is_new_patient", False),
             notes=tool_input.get("notes", ""),
             google_calendar_event_id=result.get("event_id", ""),
+            to_email=owner_email,
         )
     except Exception:
-        pass  # email failure must not break the booking response
+        pass
 
     return result

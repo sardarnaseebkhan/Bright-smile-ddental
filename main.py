@@ -3,8 +3,10 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import db
 from routers.vapi_webhook import router as vapi_router
 from routers.llm_proxy import router as llm_router
+from routers.admin import router as admin_router
 
 app = FastAPI(title="Nova Voice Agent")
 
@@ -17,15 +19,22 @@ app.add_middleware(
 
 app.include_router(vapi_router)
 app.include_router(llm_router)
+app.include_router(admin_router)
+
+
+@app.on_event("startup")
+async def startup():
+    db.init_db()
 
 
 @app.get("/health")
 async def health():
-    import os
     key = os.environ.get("RESEND_API_KEY") or "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
+    businesses = db.get_all()
     return {
         "status": "ok",
-        "version": "email-fix-v6",
+        "version": "multi-tenant-v7",
+        "businesses": len(businesses),
         "resend_configured": key.startswith("re_"),
         "from_email": os.environ.get("FROM_EMAIL") or "onboarding@resend.dev",
     }

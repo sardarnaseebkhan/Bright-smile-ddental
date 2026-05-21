@@ -45,7 +45,7 @@ VAPI_KEY = os.environ.get("VAPI_API_KEY", "3a2e87a1-6100-42d2-b805-376dfae6cf99"
 VAPI_HEADERS = {"Authorization": f"Bearer {VAPI_KEY}", "Content-Type": "application/json"}
 
 TOOL_EXECUTORS = {
-    "book_appointment": execute_book_appointment,
+    "book_appointment": execute_book_appointment,  # called directly with owner_email kwarg
     "check_available_slots": execute_check_available_slots,
     "send_email_notification": execute_send_email_notification,
 }
@@ -64,32 +64,52 @@ async def _run_tool(tool_id: str, name: str, arguments: str) -> dict:
         return {"toolCallId": tool_id, "result": f"Error: {exc}"}
 
 
-@router.post("/webhook")
-async def vapi_webhook(request: Request):
+async def _handle_tool_calls(message: dict, owner_email: str = "") -> JSONResponse:
+    if message.get("type") != "tool-calls":
+        return JSONResponse({})
+
+    tool_call_list = message.get("toolCallList", [])
+
+    async def _run(tc):
+        name = tc["function"]["name"]
+        args_str = tc["function"].get("arguments", "{}")
+        # Pass owner_email to book_appointment via a thin wrapper
+        if name == "book_appointment":
+            try:
+                args = json.loads(args_str)
+                result = await TOOL_EXECUTORS["book_appointment"](args, owner_email=owner_email)
+                return {"toolCallId": tc["id"], "result": json.dumps(result)}
+            except Exception as exc:
+                return {"toolCallId": tc["id"], "result": f"Error: {exc}"}
+        return await _run_tool(tc["id"], name, args_str)
+
+    tasks = [_run(tc) for tc in tool_call_list if tc.get("type") == "function"]
+    results = await asyncio.gather(*tasks)
+    logger.info(f"Tool results: {results}")
+    return JSONResponse({"results": list(results)})
+
+
+@router.post("/{business_id}/webhook")
+async def vapi_webhook_mt(business_id: str, request: Request):
+    import db as _db
+    biz = _db.get(business_id)
+    owner_email = biz["owner_email"] if biz else ""
     body = await request.json()
     message = body.get("message", {})
-    msg_type = message.get("type")
+    logger.info(f"VAPI webhook [{business_id}]: type={message.get('type')}")
+    return await _handle_tool_calls(message, owner_email)
 
-    logger.info(f"VAPI webhook received: type={msg_type}")
 
-    if msg_type == "tool-calls":
-        tool_call_list = message.get("toolCallList", [])
-
-        # Execute all tool calls concurrently
-        tasks = [
-            _run_tool(
-                tc["id"],
-                tc["function"]["name"],
-                tc["function"].get("arguments", "{}"),
-            )
-            for tc in tool_call_list
-            if tc.get("type") == "function"
-        ]
-        results = await asyncio.gather(*tasks)
-        logger.info(f"Tool results: {results}")
-        return JSONResponse({"results": list(results)})
-
-    return JSONResponse({})
+@router.post("/webhook")
+async def vapi_webhook(request: Request):
+    """Backward-compat route — defaults to bright-smiles."""
+    import db as _db
+    biz = _db.get("bright-smiles")
+    owner_email = biz["owner_email"] if biz else ""
+    body = await request.json()
+    message = body.get("message", {})
+    logger.info(f"VAPI webhook [legacy]: type={message.get('type')}")
+    return await _handle_tool_calls(message, owner_email)
 
 
 @router.post("/admin/setup-gemini")
