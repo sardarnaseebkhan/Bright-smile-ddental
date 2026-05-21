@@ -93,18 +93,18 @@ async def vapi_webhook(request: Request):
 
 
 @router.post("/admin/setup-gemini")
-async def setup_gemini():
-    """One-time: adds Google credential to VAPI and switches assistant to Gemini 2.0 Flash."""
-    GOOGLE_KEY = "AIzaSyDusPEKrsIDUx_kKSh2r6Ybxok8gvBhE6w"
+async def setup_gemini(request: Request):
+    """One-time: adds LLM credential to VAPI and switches assistant model."""
     results = {}
 
     async with httpx.AsyncClient(timeout=20) as client:
-        PROVIDER_KEY = os.environ.get("NEW_LLM_KEY", "")
-        PROVIDER = os.environ.get("NEW_LLM_PROVIDER", "togetherai")
-        MODEL = os.environ.get("NEW_LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        PROVIDER_KEY = body.get("apiKey") or os.environ.get("NEW_LLM_KEY", "")
+        PROVIDER = body.get("provider") or os.environ.get("NEW_LLM_PROVIDER", "togetherai")
+        MODEL = body.get("model") or os.environ.get("NEW_LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
         if not PROVIDER_KEY:
-            return JSONResponse({"error": "NEW_LLM_KEY env var not set on Railway"}, status_code=400)
+            return JSONResponse({"error": "Pass apiKey in request body"}, status_code=400)
 
         # Step 1: Add credential to VAPI
         cred_resp = await client.post(
