@@ -1,14 +1,12 @@
 """
-OpenAI-compatible streaming LLM proxy.
+OpenAI-compatible LLM proxy for VAPI custom LLM.
 
-VAPI sends requests with stream=true. We forward as SSE from OpenRouter.
-Streaming means VAPI hears tokens as they arrive — no long silence waiting.
-Falls back through model list on 429.
+Handles both streaming and non-streaming. Falls back through model list on 429.
+On total failure, returns a graceful text response so VAPI doesn't drop the call.
 """
 import base64 as _b64
 import json
 import os
-from typing import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, Request
@@ -37,44 +35,116 @@ HEADERS = {
     "X-Title": "Nova Dental Voice Agent",
 }
 
+FALLBACK_RESPONSE = {
+    "id": "fallback",
+    "object": "chat.completion",
+    "choices": [{
+        "index": 0,
+        "message": {
+            "role": "assistant",
+            "content": "I apologize, I'm having a brief technical issue. Could you please repeat that?"
+        },
+        "finish_reason": "stop"
+    }],
+    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+}
 
-async def _stream(body: dict) -> AsyncIterator[bytes]:
-    """Try each model in order, stream SSE from the first one that works."""
-    body = {**body, "stream": True}
-    async with httpx.AsyncClient(timeout=60) as client:
+
+async def _call_non_streaming(body: dict) -> dict:
+    """Try each model until one responds. Returns OpenAI-format dict."""
+    payload = {**body, "stream": False}
+    async with httpx.AsyncClient(timeout=30) as client:
         for model in MODELS:
-            body["model"] = model
+            payload["model"] = model
             try:
-                async with client.stream("POST", OPENROUTER_URL, json=body, headers=HEADERS) as r:
+                r = await client.post(OPENROUTER_URL, json=payload, headers=HEADERS)
+                if r.is_success:
+                    return r.json()
+                if r.status_code == 429:
+                    continue
+                continue
+            except httpx.TimeoutException:
+                continue
+    return FALLBACK_RESPONSE
+
+
+async def _stream_sse(body: dict):
+    """Stream SSE from OpenRouter. Converts non-streaming responses to SSE format."""
+    payload = {**body, "stream": True}
+    async with httpx.AsyncClient(timeout=45) as client:
+        for model in MODELS:
+            payload["model"] = model
+            try:
+                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=HEADERS) as r:
                     if r.status_code == 429:
                         await r.aread()
                         continue
                     if not r.is_success:
                         await r.aread()
                         continue
+
+                    # Buffer the response to check if it's SSE or plain JSON
+                    raw = b""
                     async for chunk in r.aiter_bytes():
-                        yield chunk
-                    return  # success — stop trying other models
+                        raw += chunk
+
+                    text = raw.decode("utf-8", errors="ignore").strip()
+
+                    # If it's already SSE (starts with "data:"), forward as-is
+                    if text.startswith("data:"):
+                        yield raw
+                        return
+
+                    # It's a plain JSON response — convert to SSE format
+                    try:
+                        data = json.loads(text)
+                        # Extract content from non-streaming response
+                        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        tool_calls = data.get("choices", [{}])[0].get("message", {}).get("tool_calls")
+                        finish_reason = data.get("choices", [{}])[0].get("finish_reason", "stop")
+
+                        chunk_data = {
+                            "id": data.get("id", "gen"),
+                            "object": "chat.completion.chunk",
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": content},
+                                "finish_reason": None
+                            }]
+                        }
+                        if tool_calls:
+                            chunk_data["choices"][0]["delta"]["tool_calls"] = tool_calls
+
+                        yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+
+                        # Final chunk with finish_reason
+                        final = {**chunk_data, "choices": [{**chunk_data["choices"][0], "delta": {}, "finish_reason": finish_reason}]}
+                        yield f"data: {json.dumps(final)}\n\n".encode()
+                        yield b"data: [DONE]\n\n"
+                    except Exception:
+                        yield f"data: {text}\n\ndata: [DONE]\n\n".encode()
+                    return
+
             except httpx.TimeoutException:
                 continue
 
-    # All models failed — send an error SSE chunk so VAPI knows
-    error_chunk = json.dumps({
-        "choices": [{"delta": {"content": "I'm sorry, I'm having technical difficulties. Please call back in a moment."}, "finish_reason": "stop"}]
-    })
-    yield f"data: {error_chunk}\n\ndata: [DONE]\n\n".encode()
+    # All models failed — send graceful fallback
+    fallback_content = "I apologize, I'm having a brief technical issue. Could you please repeat that?"
+    chunk = {"id": "fallback", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"role": "assistant", "content": fallback_content}, "finish_reason": "stop"}]}
+    yield f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode()
 
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
+    wants_stream = body.get("stream", False)
 
-    # Always stream — dramatically reduces latency for voice calls
-    return StreamingResponse(
-        _stream(body),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    if wants_stream:
+        return StreamingResponse(
+            _stream_sse(body),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    else:
+        result = await _call_non_streaming(body)
+        return JSONResponse(result)
