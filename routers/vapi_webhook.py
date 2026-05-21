@@ -165,3 +165,188 @@ async def setup_gemini(request: Request):
         results["exception"] = str(e)
 
     return JSONResponse(results)
+
+
+@router.post("/admin/full-reset")
+async def full_reset(request: Request):
+    """Full reset: rebuilds Nova assistant with complete system prompt, tools, and Together AI model."""
+    WEBHOOK = "https://web-production-0209e.up.railway.app/vapi/webhook"
+    TOGETHER_KEY = "tgp_v1_oqn_c9xhsbwlyePOPY2bqVzyjn01960E0Wv3Wcb_iCk"
+
+    SYSTEM_PROMPT = """You are Nova, a warm and professional AI receptionist for Bright Smiles Dental, a dental clinic at 1234 Main St, McLean, VA 22101 in Virginia.
+
+## Clinic Information
+
+Phone: +17035551234
+Address: 1234 Main St, McLean, VA 22101
+Hours:
+  Monday-Friday: 8:00 AM - 6:00 PM
+  Saturday: 9:00 AM - 2:00 PM
+  Sunday: Closed
+
+Services: General dentistry (cleanings, fillings, extractions, root canals, crowns), cosmetic dentistry (whitening, veneers, bonding), orthodontics (braces, Invisalign), pediatric dentistry, same-day emergency care.
+
+Insurance: Delta Dental, MetLife, Cigna, Aetna, United Concordia, BlueCross BlueShield, CareCredit financing.
+
+New patients: Please arrive 15 minutes early with insurance card and photo ID.
+
+## Voice Guidelines
+
+- Keep responses SHORT and CONVERSATIONAL. You are speaking on the phone.
+- One idea per sentence. No bullet points or lists.
+- Always confirm details before booking.
+
+## Appointment Booking Flow
+
+1. Ask for patient name and whether they are new or returning.
+2. Ask what brings them in today.
+3. Ask for preferred day and time.
+4. Call check_available_slots to find open times.
+5. Offer 2-3 options: "I have Monday at 9 AM or Tuesday at 2 PM, which works better for you?"
+6. Get their phone number for records.
+7. Call book_appointment once they confirm.
+8. Call send_email_notification immediately after booking, without exception.
+9. Confirm the appointment and tell them they will receive a reminder the day before.
+
+## Emergency Handling
+
+Severe pain, swelling, knocked-out tooth, or abscess: say "That sounds urgent, let me check our emergency slots right now." Then call check_available_slots with appointment_type="emergency" and preferred_date="today".
+
+## Human Handoff
+
+Billing disputes or complex insurance questions: say "Let me connect you to our office manager who can help you right away." Then end the call warmly.
+
+## Sample Phrases
+
+Greeting: "Thank you for calling Bright Smiles Dental, this is Nova! How can I help you today?"
+Scheduling: "I would love to get that set up for you, can I start with your name?"
+Empathy: "I am so sorry you are in pain. Let me check our availability right now."
+Closing: "Wonderful, we will see you then! Have a great day!"
+"""
+
+    TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "check_available_slots",
+                "description": "Check available appointment slots on the dental clinic calendar. Call this when a patient wants to book.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "preferred_date": {"type": "string", "description": "Preferred date (YYYY-MM-DD or 'today', 'tomorrow', 'next Monday')."},
+                        "preferred_time_of_day": {"type": "string", "enum": ["morning", "afternoon", "evening", "any"], "description": "Preferred time of day."},
+                        "appointment_type": {"type": "string", "description": "Type: cleaning, filling, consultation, emergency, whitening, extraction, other."},
+                        "duration_minutes": {"type": "integer", "description": "Duration in minutes. Default 60."},
+                    },
+                    "required": ["preferred_date", "appointment_type"],
+                },
+            },
+            "server": {"url": WEBHOOK},
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "book_appointment",
+                "description": "Book a dental appointment. Only call after patient confirms the specific date and time.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patient_name": {"type": "string"},
+                        "patient_phone": {"type": "string"},
+                        "appointment_datetime": {"type": "string", "description": "ISO 8601: YYYY-MM-DDTHH:MM:SS"},
+                        "duration_minutes": {"type": "integer"},
+                        "appointment_type": {"type": "string"},
+                        "is_new_patient": {"type": "boolean"},
+                        "notes": {"type": "string"},
+                    },
+                    "required": ["patient_name", "patient_phone", "appointment_datetime", "appointment_type"],
+                },
+            },
+            "server": {"url": WEBHOOK},
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "send_email_notification",
+                "description": "Email the clinic owner about the booking. Always call immediately after book_appointment succeeds.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patient_name": {"type": "string"},
+                        "patient_phone": {"type": "string"},
+                        "appointment_datetime": {"type": "string"},
+                        "appointment_type": {"type": "string"},
+                        "is_new_patient": {"type": "boolean"},
+                        "notes": {"type": "string"},
+                        "google_calendar_event_id": {"type": "string"},
+                    },
+                    "required": ["patient_name", "patient_phone", "appointment_datetime", "appointment_type"],
+                },
+            },
+            "server": {"url": WEBHOOK},
+        },
+    ]
+
+    ASSISTANT_PAYLOAD = {
+        "name": "Nova — Bright Smiles Dental Receptionist",
+        "firstMessage": "Thank you for calling Bright Smiles Dental, this is Nova! How can I help you today?",
+        "model": {
+            "provider": "together-ai",
+            "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "systemPrompt": SYSTEM_PROMPT,
+            "temperature": 0.7,
+            "tools": TOOLS,
+        },
+        "voice": {"provider": "deepgram", "voiceId": "asteria"},
+        "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en"},
+        "endCallMessage": "Thank you for calling. Have a wonderful day!",
+        "silenceTimeoutSeconds": 30,
+        "maxDurationSeconds": 600,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            # Ensure Together AI credential exists
+            cred_resp = await client.post(
+                "https://api.vapi.ai/credential",
+                headers=VAPI_HEADERS,
+                json={"provider": "together-ai", "apiKey": TOGETHER_KEY},
+            )
+
+            # Find and fully update Nova
+            resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
+            resp.raise_for_status()
+            asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+            nova = next((a for a in asst_list if "Nova" in a.get("name", "")), None)
+
+            if nova:
+                patch = await client.patch(
+                    f"https://api.vapi.ai/assistant/{nova['id']}",
+                    headers=VAPI_HEADERS,
+                    json=ASSISTANT_PAYLOAD,
+                )
+                if not patch.is_success:
+                    return JSONResponse({"error": patch.text[:500]}, status_code=500)
+                result = patch.json()
+            else:
+                create = await client.post(
+                    "https://api.vapi.ai/assistant",
+                    headers=VAPI_HEADERS,
+                    json=ASSISTANT_PAYLOAD,
+                )
+                if not create.is_success:
+                    return JSONResponse({"error": create.text[:500]}, status_code=500)
+                result = create.json()
+
+            m = result.get("model", {})
+            sp = m.get("systemPrompt", "")
+            return JSONResponse({
+                "ok": True,
+                "assistant": result.get("name"),
+                "provider": m.get("provider"),
+                "model": m.get("model"),
+                "system_prompt_length": len(sp),
+                "tools_count": len(m.get("tools", [])),
+            })
+    except Exception as e:
+        return JSONResponse({"exception": str(e)}, status_code=500)
