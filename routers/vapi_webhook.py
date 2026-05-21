@@ -175,6 +175,13 @@ async def full_reset(request: Request):
 
     SYSTEM_PROMPT = """You are Nova, a warm and professional AI receptionist for Bright Smiles Dental, a dental clinic at 1234 Main St, McLean, VA 22101 in Virginia.
 
+## Critical Rules — Always Follow
+
+1. After completing any booking, ALWAYS say: "Is there anything else I can help you with today?"
+2. When the caller says they are done or have no more questions, ALWAYS end with: "It was so nice talking with you! Have a wonderful day! Goodbye!"
+3. Never end a call without saying goodbye warmly.
+4. Respond immediately after the caller finishes speaking. Do not pause.
+
 ## Clinic Information
 
 Phone: +17035551234
@@ -309,9 +316,14 @@ Closing: "Have a wonderful day! Goodbye!"
             "tools": TOOLS,
         },
         "voice": {"provider": "deepgram", "voiceId": "asteria"},
-        "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en"},
+        "transcriber": {
+            "provider": "deepgram",
+            "model": "nova-2",
+            "language": "en",
+            "endpointing": 200,
+        },
         "startSpeakingPlan": {
-            "waitSeconds": 0.5,
+            "waitSeconds": 0.3,
             "smartEndpointingEnabled": True,
         },
         "endCallMessage": "It was a pleasure speaking with you. Have a wonderful day! Goodbye!",

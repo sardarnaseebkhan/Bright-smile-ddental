@@ -150,7 +150,7 @@ async def _call_openrouter(messages: list) -> dict | None:
 
 async def _run_tool_loop(messages: list):
     """Execute the tool-calling loop, then stream the final response."""
-    for _ in range(3):
+    for _ in range(5):
         response = await _call_openrouter(messages)
         if response is None:
             break
@@ -161,7 +161,6 @@ async def _run_tool_loop(messages: list):
         tool_calls = message.get("tool_calls") or []
 
         if not tool_calls or finish_reason != "tool_calls":
-            # We already have the text — stream it directly, no second LLM call
             content = (message.get("content") or "").strip()
             if not content:
                 content = "I'm sorry, I didn't catch that. Could you please repeat?"
@@ -187,7 +186,14 @@ async def _run_tool_loop(messages: list):
                 tool_content = json.dumps({"error": f"Unknown tool: {fn_name}"})
             messages.append({"role": "tool", "tool_call_id": tc_id, "content": tool_content})
 
-    # All models failed or loop exhausted
+    # Loop exhausted after tool calls — ask LLM one final time for the text response
+    final = await _call_openrouter(messages)
+    if final:
+        content = (final.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        if content:
+            yield _sse_text(content)
+            return
+
     yield _sse_text("I'm sorry, I'm having trouble connecting right now. Please try again in a moment.")
 
 
