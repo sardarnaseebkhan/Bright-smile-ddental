@@ -27,7 +27,9 @@ Response shape VAPI expects:
 """
 import asyncio
 import json
+import os
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -38,6 +40,9 @@ from utils.logging import get_logger
 
 router = APIRouter(prefix="/vapi")
 logger = get_logger(__name__)
+
+VAPI_KEY = os.environ.get("VAPI_API_KEY", "3a2e87a1-6100-42d2-b805-376dfae6cf99")
+VAPI_HEADERS = {"Authorization": f"Bearer {VAPI_KEY}", "Content-Type": "application/json"}
 
 TOOL_EXECUTORS = {
     "book_appointment": execute_book_appointment,
@@ -84,6 +89,34 @@ async def vapi_webhook(request: Request):
         logger.info(f"Tool results: {results}")
         return JSONResponse({"results": list(results)})
 
-    # VAPI sends other event types (status-update, end-of-call-report, etc.)
-    # Return 200 with empty body to acknowledge
     return JSONResponse({})
+
+
+@router.post("/admin/switch-to-gemini")
+async def switch_to_gemini():
+    """One-time endpoint: patches the VAPI assistant to use Google Gemini 2.0 Flash."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
+        resp.raise_for_status()
+        asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+        nova = next((a for a in asst_list if "Nova" in a.get("name", "")), None)
+        if not nova:
+            return JSONResponse({"error": "No Nova assistant found"}, status_code=404)
+
+        old_model = nova.get("model", {})
+        patch = await client.patch(
+            f"https://api.vapi.ai/assistant/{nova['id']}",
+            headers=VAPI_HEADERS,
+            json={
+                "model": {
+                    "provider": "google",
+                    "model": "gemini-2.0-flash",
+                    "systemPrompt": old_model.get("systemPrompt", ""),
+                    "temperature": 0.7,
+                    "tools": old_model.get("tools", []),
+                }
+            },
+        )
+        patch.raise_for_status()
+        m = patch.json().get("model", {})
+        return JSONResponse({"updated": True, "provider": m.get("provider"), "model": m.get("model")})
