@@ -96,63 +96,72 @@ async def vapi_webhook(request: Request):
 async def setup_gemini(request: Request):
     """One-time: adds LLM credential to VAPI and switches assistant model."""
     results = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
-        PROVIDER_KEY = body.get("apiKey") or os.environ.get("NEW_LLM_KEY", "")
-        PROVIDER = body.get("provider") or os.environ.get("NEW_LLM_PROVIDER", "togetherai")
-        MODEL = body.get("model") or os.environ.get("NEW_LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+    PROVIDER_KEY = body.get("apiKey") or os.environ.get("NEW_LLM_KEY", "")
+    PROVIDER = body.get("provider") or os.environ.get("NEW_LLM_PROVIDER", "together-ai")
+    MODEL = body.get("model") or os.environ.get("NEW_LLM_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
 
-        if not PROVIDER_KEY:
-            return JSONResponse({"error": "Pass apiKey in request body"}, status_code=400)
+    if not PROVIDER_KEY:
+        return JSONResponse({"error": "Pass apiKey in request body"}, status_code=400)
 
-        # Step 1: Add credential to VAPI
-        cred_resp = await client.post(
-            "https://api.vapi.ai/credential",
-            headers=VAPI_HEADERS,
-            json={"provider": PROVIDER, "apiKey": PROVIDER_KEY},
-        )
-        if cred_resp.status_code in (200, 201):
-            results["credential"] = "added"
-        elif cred_resp.status_code == 409:
-            creds = await client.get("https://api.vapi.ai/credential", headers=VAPI_HEADERS)
-            cred_list = creds.json() if isinstance(creds.json(), list) else creds.json().get("data", [])
-            cred = next((c for c in cred_list if c.get("provider") == PROVIDER), None)
-            if cred:
-                await client.patch(
-                    f"https://api.vapi.ai/credential/{cred['id']}",
-                    headers=VAPI_HEADERS,
-                    json={"apiKey": PROVIDER_KEY},
-                )
-            results["credential"] = "updated"
-        else:
-            results["credential"] = f"error {cred_resp.status_code}: {cred_resp.text[:200]}"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            # Step 1: Add credential to VAPI
+            cred_resp = await client.post(
+                "https://api.vapi.ai/credential",
+                headers=VAPI_HEADERS,
+                json={"provider": PROVIDER, "apiKey": PROVIDER_KEY},
+            )
+            if cred_resp.status_code in (200, 201):
+                results["credential"] = "added"
+            elif cred_resp.status_code == 409:
+                creds = await client.get("https://api.vapi.ai/credential", headers=VAPI_HEADERS)
+                cred_list = creds.json() if isinstance(creds.json(), list) else creds.json().get("data", [])
+                cred = next((c for c in cred_list if c.get("provider") == PROVIDER), None)
+                if cred:
+                    await client.patch(
+                        f"https://api.vapi.ai/credential/{cred['id']}",
+                        headers=VAPI_HEADERS,
+                        json={"apiKey": PROVIDER_KEY},
+                    )
+                results["credential"] = "updated"
+            else:
+                results["credential"] = f"error {cred_resp.status_code}: {cred_resp.text[:300]}"
 
-        # Step 2: Switch Nova assistant model
-        resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
-        resp.raise_for_status()
-        asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
-        nova = next((a for a in asst_list if "Nova" in a.get("name", "")), None)
-        if not nova:
-            results["assistant"] = "error: Nova not found"
-            return JSONResponse(results, status_code=404)
+            # Step 2: Switch Nova assistant model
+            resp = await client.get("https://api.vapi.ai/assistant", headers=VAPI_HEADERS)
+            resp.raise_for_status()
+            asst_list = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+            nova = next((a for a in asst_list if "Nova" in a.get("name", "")), None)
+            if not nova:
+                results["assistant"] = "error: Nova not found"
+                return JSONResponse(results, status_code=404)
 
-        old_model = nova.get("model", {})
-        patch = await client.patch(
-            f"https://api.vapi.ai/assistant/{nova['id']}",
-            headers=VAPI_HEADERS,
-            json={
-                "model": {
-                    "provider": PROVIDER,
-                    "model": MODEL,
-                    "systemPrompt": old_model.get("systemPrompt", ""),
-                    "temperature": 0.7,
-                    "tools": old_model.get("tools", []),
-                }
-            },
-        )
-        patch.raise_for_status()
-        m = patch.json().get("model", {})
-        results["assistant"] = f"{m.get('provider')}/{m.get('model')}"
+            old_model = nova.get("model", {})
+            patch = await client.patch(
+                f"https://api.vapi.ai/assistant/{nova['id']}",
+                headers=VAPI_HEADERS,
+                json={
+                    "model": {
+                        "provider": PROVIDER,
+                        "model": MODEL,
+                        "systemPrompt": old_model.get("systemPrompt", ""),
+                        "temperature": 0.7,
+                        "tools": old_model.get("tools", []),
+                    }
+                },
+            )
+            if not patch.is_success:
+                results["assistant"] = f"error {patch.status_code}: {patch.text[:300]}"
+            else:
+                m = patch.json().get("model", {})
+                results["assistant"] = f"{m.get('provider')}/{m.get('model')}"
+
+    except Exception as e:
+        results["exception"] = str(e)
 
     return JSONResponse(results)
