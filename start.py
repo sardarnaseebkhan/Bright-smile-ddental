@@ -196,8 +196,8 @@ def setup_vapi(webhook_url: str) -> str:
         "name": f"Nova — {CLINIC_NAME} Receptionist",
         "firstMessage": f"Thank you for calling {CLINIC_NAME}, this is Nova! How can I help you today?",
         "model": {
-            "provider": "anthropic",
-            "model": "claude-3-5-sonnet-20241022",
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
             "systemPrompt": SYSTEM_PROMPT,
             "temperature": 0.7,
             "tools": build_tools(webhook_url),

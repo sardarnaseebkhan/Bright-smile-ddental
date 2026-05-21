@@ -107,11 +107,11 @@ def update_assistant(asst_id: str, webhook_url: str):
         r = c.patch(
             f"https://api.vapi.ai/assistant/{asst_id}",
             headers=HEADERS,
-            json={"model": {"provider": "anthropic", "model": "claude-3-5-sonnet-20241022",
+            json={"model": {"provider": "groq", "model": "llama-3.3-70b-versatile",
                             "systemPrompt": SYSTEM_PROMPT, "tools": tools}},
         )
         r.raise_for_status()
-        print(f"Assistant updated with new webhook URL")
+        print(f"Assistant updated — using Groq llama-3.3-70b-versatile (free)")
 
 
 def main():
