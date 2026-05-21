@@ -1,16 +1,18 @@
 """
-OpenAI-compatible LLM proxy.
+OpenAI-compatible streaming LLM proxy.
 
-VAPI sends chat/completions requests here as a custom LLM.
-We forward to OpenRouter (Railway US → OpenRouter US, no geo-block).
-Retries through a fallback list if the primary model is rate-limited.
+VAPI sends requests with stream=true. We forward as SSE from OpenRouter.
+Streaming means VAPI hears tokens as they arrive — no long silence waiting.
+Falls back through model list on 429.
 """
 import base64 as _b64
+import json
 import os
+from typing import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 router = APIRouter(prefix="/llm")
 
@@ -20,7 +22,6 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or _b64.b64decode(
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Ordered fallback list — all support tool calling, all free
 MODELS = [
     "nvidia/nemotron-3-super-120b-a12b:free",
     "nousresearch/hermes-3-llama-3.1-405b:free",
@@ -29,42 +30,51 @@ MODELS = [
     "deepseek/deepseek-v4-flash:free",
 ]
 
+HEADERS = {
+    "Authorization": f"Bearer {OPENROUTER_KEY}",
+    "Content-Type": "application/json",
+    "HTTP-Referer": "https://web-production-0209e.up.railway.app",
+    "X-Title": "Nova Dental Voice Agent",
+}
+
+
+async def _stream(body: dict) -> AsyncIterator[bytes]:
+    """Try each model in order, stream SSE from the first one that works."""
+    body = {**body, "stream": True}
+    async with httpx.AsyncClient(timeout=60) as client:
+        for model in MODELS:
+            body["model"] = model
+            try:
+                async with client.stream("POST", OPENROUTER_URL, json=body, headers=HEADERS) as r:
+                    if r.status_code == 429:
+                        await r.aread()
+                        continue
+                    if not r.is_success:
+                        await r.aread()
+                        continue
+                    async for chunk in r.aiter_bytes():
+                        yield chunk
+                    return  # success — stop trying other models
+            except httpx.TimeoutException:
+                continue
+
+    # All models failed — send an error SSE chunk so VAPI knows
+    error_chunk = json.dumps({
+        "choices": [{"delta": {"content": "I'm sorry, I'm having technical difficulties. Please call back in a moment."}, "finish_reason": "stop"}]
+    })
+    yield f"data: {error_chunk}\n\ndata: [DONE]\n\n".encode()
+
 
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
-    body["stream"] = False  # VAPI custom LLM works with non-streaming
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://web-production-0209e.up.railway.app",
-        "X-Title": "Nova Dental Voice Agent",
-    }
-
-    # Try each model in order until one works
-    last_error = "all models failed"
-    async with httpx.AsyncClient(timeout=45) as client:
-        for model in MODELS:
-            body["model"] = model
-            try:
-                r = await client.post(OPENROUTER_URL, json=body, headers=headers)
-                if r.is_success:
-                    return JSONResponse(r.json())
-                err_body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-                err_msg = err_body.get("error", {}).get("message", r.text[:100])
-                # 429 = rate limited, try next model
-                if r.status_code == 429:
-                    last_error = f"{model} rate-limited: {err_msg[:80]}"
-                    continue
-                # Other errors — still try next model
-                last_error = f"{model} error {r.status_code}: {err_msg[:80]}"
-                continue
-            except httpx.TimeoutException:
-                last_error = f"{model} timed out"
-                continue
-
-    return JSONResponse(
-        {"error": {"message": last_error, "type": "proxy_error"}},
-        status_code=503,
+    # Always stream — dramatically reduces latency for voice calls
+    return StreamingResponse(
+        _stream(body),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
