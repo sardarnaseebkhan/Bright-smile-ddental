@@ -107,11 +107,11 @@ def update_assistant(asst_id: str, webhook_url: str):
         r = c.patch(
             f"https://api.vapi.ai/assistant/{asst_id}",
             headers=HEADERS,
-            json={"model": {"provider": "groq", "model": "llama-3.3-70b-versatile",
+            json={"model": {"provider": "google", "model": "gemini-2.0-flash",
                             "systemPrompt": SYSTEM_PROMPT, "tools": tools}},
         )
         r.raise_for_status()
-        print(f"Assistant updated — using Groq llama-3.3-70b-versatile (free)")
+        print(f"Assistant updated — using Google Gemini 2.0 Flash (free)")
 
 
 def main():
