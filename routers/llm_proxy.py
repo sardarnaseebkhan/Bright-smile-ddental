@@ -30,11 +30,14 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or _b64.b64decode(
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 MODELS = [
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+    "deepseek/deepseek-v4-flash:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "nousresearch/hermes-3-llama-3.1-405b:free",
     "qwen/qwen3-next-80b-a3b-instruct:free",
-    "deepseek/deepseek-v4-flash:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
+    "minimax/minimax-m2.5:free",
 ]
 
 OR_HEADERS = {
@@ -130,9 +133,8 @@ async def _call_openrouter(messages: list, stream: bool = False) -> dict | None:
                 r = await client.post(OPENROUTER_URL, json=payload, headers=OR_HEADERS)
                 if r.is_success:
                     return r.json()
-                if r.status_code == 429:
-                    continue
-            except httpx.TimeoutException:
+                continue  # any error — try next model
+            except (httpx.TimeoutException, httpx.RequestError):
                 continue
     return None
 
@@ -172,7 +174,7 @@ async def _stream_openrouter(messages: list):
                         except json.JSONDecodeError:
                             continue
                     return
-            except httpx.TimeoutException:
+            except (httpx.TimeoutException, httpx.RequestError):
                 continue
 
     # Fallback
