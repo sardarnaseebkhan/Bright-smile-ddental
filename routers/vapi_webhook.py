@@ -293,7 +293,7 @@ Closing: "Wonderful, we will see you then! Have a great day!"
         "model": {
             "provider": "custom-llm",
             "url": "https://web-production-0209e.up.railway.app/llm/v1/chat/completions",
-            "model": "deepseek/deepseek-chat-v3-0324:free",
+            "model": "nvidia/nemotron-3-super-120b-a12b:free",
             "systemPrompt": SYSTEM_PROMPT,
             "temperature": 0.7,
             "tools": TOOLS,

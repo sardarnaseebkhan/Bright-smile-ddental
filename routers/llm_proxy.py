@@ -18,7 +18,7 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY") or _b64.b64decode(
     "c2stb3ItdjEtYzRjZGQ0MWZjZGZhNjBlNmNhMjNjYTg4MTE5MzgwYmEzMTY0OGYwMWM5ZTI0MzNhMGFmMzc3Mjc1YTlmMTIzNQ=="
 ).decode()
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "deepseek/deepseek-chat-v3-0324:free"
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 
 @router.post("/v1/chat/completions")
