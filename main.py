@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers.vapi_webhook import router as vapi_router
+from routers.llm_proxy import router as llm_router
 
 app = FastAPI(title="Nova Voice Agent")
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(vapi_router)
+app.include_router(llm_router)
 
 
 @app.get("/health")

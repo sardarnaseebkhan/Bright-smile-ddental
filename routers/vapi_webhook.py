@@ -291,8 +291,9 @@ Closing: "Wonderful, we will see you then! Have a great day!"
         "name": "Nova — Bright Smiles Dental Receptionist",
         "firstMessage": "Thank you for calling Bright Smiles Dental, this is Nova! How can I help you today?",
         "model": {
-            "provider": "together-ai",
-            "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "provider": "custom-llm",
+            "url": "https://web-production-0209e.up.railway.app/llm/v1/chat/completions",
+            "model": "deepseek/deepseek-chat-v3-0324:free",
             "systemPrompt": SYSTEM_PROMPT,
             "temperature": 0.7,
             "tools": TOOLS,
