@@ -114,12 +114,21 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def _clean_delta(delta: dict) -> dict:
-    return {k: v for k, v in delta.items() if k in ("role", "content", "tool_calls", "function_call")}
+def _sse_text(content: str) -> bytes:
+    """Wrap a text string as SSE chunks without another LLM call."""
+    chunk = {"id": "chatcmpl-0", "object": "chat.completion.chunk",
+             "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]}
+    stop = {"id": "chatcmpl-0", "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+    return (
+        f"data: {json.dumps(chunk)}\n\n"
+        f"data: {json.dumps(stop)}\n\n"
+        "data: [DONE]\n\n"
+    ).encode()
 
 
-async def _call_openrouter(messages: list, stream: bool = False) -> dict | None:
-    """Call OpenRouter non-streaming. Returns the full response dict or None on failure."""
+async def _call_openrouter(messages: list) -> dict | None:
+    """Call OpenRouter non-streaming with tool support. Returns response dict or None."""
     payload = {
         "messages": messages,
         "tools": TOOL_DEFINITIONS,
@@ -133,59 +142,14 @@ async def _call_openrouter(messages: list, stream: bool = False) -> dict | None:
                 r = await client.post(OPENROUTER_URL, json=payload, headers=OR_HEADERS)
                 if r.is_success:
                     return r.json()
-                continue  # any error — try next model
+                continue
             except (httpx.TimeoutException, httpx.RequestError):
                 continue
     return None
 
 
-async def _stream_openrouter(messages: list):
-    """Stream the final text response from OpenRouter to VAPI."""
-    payload = {
-        "messages": messages,
-        "tools": TOOL_DEFINITIONS,
-        "tool_choice": "none",  # no more tool calls — just generate text
-        "stream": True,
-    }
-    async with httpx.AsyncClient(timeout=45) as client:
-        for model in MODELS:
-            payload["model"] = model
-            try:
-                async with client.stream("POST", OPENROUTER_URL, json=payload, headers=OR_HEADERS) as r:
-                    if r.status_code == 429:
-                        await r.aread()
-                        continue
-                    if not r.is_success:
-                        await r.aread()
-                        continue
-                    async for line in r.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data_str = line[5:].strip()
-                        if data_str == "[DONE]":
-                            yield b"data: [DONE]\n\n"
-                            return
-                        try:
-                            chunk = json.loads(data_str)
-                            for choice in chunk.get("choices", []):
-                                if "delta" in choice:
-                                    choice["delta"] = _clean_delta(choice["delta"])
-                            yield f"data: {json.dumps(chunk)}\n\n".encode()
-                        except json.JSONDecodeError:
-                            continue
-                    return
-            except (httpx.TimeoutException, httpx.RequestError):
-                continue
-
-    # Fallback
-    fb = {"id": "fb", "object": "chat.completion.chunk",
-          "choices": [{"index": 0, "delta": {"role": "assistant", "content": "I apologize, could you repeat that?"}, "finish_reason": "stop"}]}
-    yield f"data: {json.dumps(fb)}\n\ndata: [DONE]\n\n".encode()
-
-
 async def _run_tool_loop(messages: list):
     """Execute the tool-calling loop, then stream the final response."""
-    # Tool loop (non-streaming, up to 3 tool rounds)
     for _ in range(3):
         response = await _call_openrouter(messages)
         if response is None:
@@ -197,23 +161,20 @@ async def _run_tool_loop(messages: list):
         tool_calls = message.get("tool_calls") or []
 
         if not tool_calls or finish_reason != "tool_calls":
-            # No tool calls — stream the final text response back to VAPI
-            content = message.get("content", "")
-            if content:
-                messages.append({"role": "assistant", "content": content})
-            async for chunk in _stream_openrouter(messages):
-                yield chunk
+            # We already have the text — stream it directly, no second LLM call
+            content = (message.get("content") or "").strip()
+            if not content:
+                content = "I'm sorry, I didn't catch that. Could you please repeat?"
+            yield _sse_text(content)
             return
 
         # Execute tool calls
-        assistant_msg = {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
-        messages.append(assistant_msg)
+        messages.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
 
         for tc in tool_calls:
             fn_name = tc.get("function", {}).get("name", "")
             fn_args_str = tc.get("function", {}).get("arguments", "{}")
             tc_id = tc.get("id", "tc_0")
-
             executor = TOOL_EXECUTORS.get(fn_name)
             if executor:
                 try:
@@ -224,12 +185,10 @@ async def _run_tool_loop(messages: list):
                     tool_content = json.dumps({"error": str(e)})
             else:
                 tool_content = json.dumps({"error": f"Unknown tool: {fn_name}"})
-
             messages.append({"role": "tool", "tool_call_id": tc_id, "content": tool_content})
 
-    # Fallback if loop exhausted
-    async for chunk in _stream_openrouter(messages):
-        yield chunk
+    # All models failed or loop exhausted
+    yield _sse_text("I'm sorry, I'm having trouble connecting right now. Please try again in a moment.")
 
 
 @router.post("/v1/chat/completions")
