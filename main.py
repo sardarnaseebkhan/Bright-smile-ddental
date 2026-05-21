@@ -25,6 +25,7 @@ async def health():
     key = os.environ.get("RESEND_API_KEY") or "re_KFm69fGM_JynaMvZpnrqRxq44ods1z3sa"
     return {
         "status": "ok",
+        "version": "gpt-oss-v3",
         "resend_configured": key.startswith("re_"),
         "from_email": os.environ.get("FROM_EMAIL") or "onboarding@resend.dev",
     }
