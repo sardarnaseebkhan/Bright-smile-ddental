@@ -95,6 +95,12 @@ def _build_payload(biz: dict) -> dict:
         },
         "startSpeakingPlan": {"waitSeconds": 0.3, "smartEndpointingEnabled": True},
         "endCallMessage": "It was a pleasure speaking with you. Have a wonderful day! Goodbye!",
+        "endCallPhrases": [
+            "Goodbye!",
+            "Have a wonderful day! Goodbye",
+            "Have a great day! Goodbye",
+            "Take care! Goodbye",
+        ],
         "silenceTimeoutSeconds": 30,
         "maxDurationSeconds": 600,
     }

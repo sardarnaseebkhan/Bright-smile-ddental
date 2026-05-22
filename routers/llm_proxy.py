@@ -47,10 +47,10 @@ OR_HEADERS = {
     "X-Title": "Nova Dental Voice Agent",
 }
 
-def _make_executors(owner_email: str = "") -> dict:
-    """Return tool executor map bound to a specific business's owner email."""
+def _make_executors(owner_email: str = "", clinic_name: str = "") -> dict:
+    """Return tool executor map bound to a specific business."""
     async def _book(args):
-        return await execute_book_appointment(args, owner_email=owner_email)
+        return await execute_book_appointment(args, owner_email=owner_email, clinic_name=clinic_name)
 
     return {
         "check_available_slots": execute_check_available_slots,
@@ -210,11 +210,13 @@ _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 @router.post("/{business_id}/v1/chat/completions")
 async def chat_completions_mt(business_id: str, request: Request):
     import db as _db
-    biz = _db.get(business_id)
-    owner_email = biz["owner_email"] if biz else ""
+    biz = _db.get(business_id) or {}
     body = await request.json()
     return StreamingResponse(
-        _run_tool_loop(body.get("messages", []), _make_executors(owner_email)),
+        _run_tool_loop(
+            body.get("messages", []),
+            _make_executors(biz.get("owner_email", ""), biz.get("name", "")),
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -224,11 +226,13 @@ async def chat_completions_mt(business_id: str, request: Request):
 async def chat_completions(request: Request):
     """Backward-compat route — defaults to bright-smiles."""
     import db as _db
-    biz = _db.get("bright-smiles")
-    owner_email = biz["owner_email"] if biz else ""
+    biz = _db.get("bright-smiles") or {}
     body = await request.json()
     return StreamingResponse(
-        _run_tool_loop(body.get("messages", []), _make_executors(owner_email)),
+        _run_tool_loop(
+            body.get("messages", []),
+            _make_executors(biz.get("owner_email", ""), biz.get("name", "")),
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

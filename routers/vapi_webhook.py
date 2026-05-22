@@ -64,7 +64,7 @@ async def _run_tool(tool_id: str, name: str, arguments: str) -> dict:
         return {"toolCallId": tool_id, "result": f"Error: {exc}"}
 
 
-async def _handle_tool_calls(message: dict, owner_email: str = "") -> JSONResponse:
+async def _handle_tool_calls(message: dict, owner_email: str = "", clinic_name: str = "") -> JSONResponse:
     if message.get("type") != "tool-calls":
         return JSONResponse({})
 
@@ -73,11 +73,12 @@ async def _handle_tool_calls(message: dict, owner_email: str = "") -> JSONRespon
     async def _run(tc):
         name = tc["function"]["name"]
         args_str = tc["function"].get("arguments", "{}")
-        # Pass owner_email to book_appointment via a thin wrapper
         if name == "book_appointment":
             try:
                 args = json.loads(args_str)
-                result = await TOOL_EXECUTORS["book_appointment"](args, owner_email=owner_email)
+                result = await TOOL_EXECUTORS["book_appointment"](
+                    args, owner_email=owner_email, clinic_name=clinic_name
+                )
                 return {"toolCallId": tc["id"], "result": json.dumps(result)}
             except Exception as exc:
                 return {"toolCallId": tc["id"], "result": f"Error: {exc}"}
@@ -92,24 +93,22 @@ async def _handle_tool_calls(message: dict, owner_email: str = "") -> JSONRespon
 @router.post("/{business_id}/webhook")
 async def vapi_webhook_mt(business_id: str, request: Request):
     import db as _db
-    biz = _db.get(business_id)
-    owner_email = biz["owner_email"] if biz else ""
+    biz = _db.get(business_id) or {}
     body = await request.json()
     message = body.get("message", {})
     logger.info(f"VAPI webhook [{business_id}]: type={message.get('type')}")
-    return await _handle_tool_calls(message, owner_email)
+    return await _handle_tool_calls(message, biz.get("owner_email", ""), biz.get("name", ""))
 
 
 @router.post("/webhook")
 async def vapi_webhook(request: Request):
     """Backward-compat route — defaults to bright-smiles."""
     import db as _db
-    biz = _db.get("bright-smiles")
-    owner_email = biz["owner_email"] if biz else ""
+    biz = _db.get("bright-smiles") or {}
     body = await request.json()
     message = body.get("message", {})
     logger.info(f"VAPI webhook [legacy]: type={message.get('type')}")
-    return await _handle_tool_calls(message, owner_email)
+    return await _handle_tool_calls(message, biz.get("owner_email", ""), biz.get("name", ""))
 
 
 @router.post("/admin/setup-gemini")

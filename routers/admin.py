@@ -31,6 +31,8 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+VAPI_PUBLIC_KEY = os.environ.get("VAPI_PUBLIC_KEY", "")
+
 _CSS = """
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -78,6 +80,13 @@ _CSS = """
   .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
   .url-box { background: #f1f5f9; border-radius: 6px; padding: 8px 12px;
              font-size: .78rem; font-family: monospace; word-break: break-all; }
+  .widget-modal { background: #fff; border-radius: 10px; padding: 24px;
+                  width: 700px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+  .code-block { background: #1e1e2e; color: #cdd6f4; border-radius: 8px; padding: 16px;
+                font-family: monospace; font-size: .8rem; white-space: pre; overflow-x: auto;
+                line-height: 1.5; }
+  .copy-btn { background: #1a56db; color: #fff; border: none; padding: 6px 14px;
+              border-radius: 6px; cursor: pointer; font-size: .82rem; margin-top: 8px; }
 </style>
 """
 
@@ -203,6 +212,45 @@ def _render(businesses: list, flash: str = "") -> str:
              "hours_sun","services","insurance","assistant_name","first_message"]
         }, ensure_ascii=False).replace("'", "\\'").replace('"', '&quot;')
 
+        widget_code = f"""<!-- Nova Voice Agent Widget — {b['name']} -->
+<script>
+  (function (d, t) {{
+    var g = d.createElement(t), s = d.getElementsByTagName(t)[0];
+    g.src = "https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js";
+    g.defer = true; g.async = true;
+    s.parentNode.insertBefore(g, s);
+    g.onload = function () {{
+      window.vapiSDK.run({{
+        apiKey: "{VAPI_PUBLIC_KEY or 'YOUR_VAPI_PUBLIC_KEY'}",
+        assistant: "{vapi_id or 'PROVISION_VAPI_FIRST'}",
+        config: {{
+          position: "bottom-right",
+          offset: "40px",
+          width: "56px",
+          height: "56px",
+          idle: {{
+            color: "#1a56db",
+            type: "pill",
+            title: "Call Us",
+            subtitle: "Available 24/7",
+            icon: "https://unpkg.com/lucide-static@0.321.0/icons/phone.svg"
+          }},
+          loading: {{ color: "#1a56db", type: "pill", title: "Connecting..." }},
+          active: {{
+            color: "#dc2626",
+            type: "pill",
+            title: "Call in progress",
+            subtitle: "Tap to end",
+            icon: "https://unpkg.com/lucide-static@0.321.0/icons/phone-off.svg"
+          }}
+        }}
+      }});
+    }};
+  }})(document, "script");
+</script>"""
+
+        widget_escaped = widget_code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
         rows += f"""
         <tr>
           <td><strong>{b['name']}</strong><br>
@@ -216,6 +264,7 @@ def _render(businesses: list, flash: str = "") -> str:
             <form method="post" action="/admin/provision/{b['id']}" style="display:inline">
               <button type="submit" class="btn btn-success">Provision VAPI</button>
             </form>
+            <button class="btn btn-warning" onclick="openWidget('{b['id']}', `{widget_code.replace('`','\\`')}`)">Get Widget</button>
             <form method="post" action="/admin/delete/{b['id']}" style="display:inline"
                   onsubmit="return confirm('Delete {b['name']}?')">
               <button type="submit" class="btn btn-danger">Delete</button>
@@ -263,6 +312,54 @@ def _render(businesses: list, flash: str = "") -> str:
   </div>
 </div>
 {_MODAL}
+
+<!-- Widget Code Modal -->
+<div class="modal-bg" id="widget-modal">
+  <div class="widget-modal">
+    <h3 style="margin-bottom:4px">Website Widget Code</h3>
+    <p style="color:#6b7280;font-size:.85rem;margin-bottom:14px">
+      Paste this snippet just before the <code>&lt;/body&gt;</code> tag on the client's website.
+      It adds a floating "Call Us" button that connects directly to Nova.
+    </p>
+    <div id="widget-name" style="font-weight:600;margin-bottom:8px;color:#1a56db"></div>
+
+    {'<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;padding:10px 14px;font-size:.82rem;margin-bottom:12px"><strong>⚠ Set your VAPI Public Key:</strong> Add <code>VAPI_PUBLIC_KEY</code> in Railway env vars. Get it from <a href="https://dashboard.vapi.ai" target="_blank">dashboard.vapi.ai</a> → Account → Public Key.</div>' if not VAPI_PUBLIC_KEY else ''}
+
+    <pre class="code-block" id="widget-code-display"></pre>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="copy-btn" onclick="copyWidget()">Copy Code</button>
+      <button class="btn btn-danger" onclick="closeWidget()" style="margin-left:auto">Close</button>
+    </div>
+
+    <div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;font-size:.82rem">
+      <strong>Phone diversion (no website):</strong> Forward the clinic's phone number to their
+      VAPI phone number in your VAPI dashboard. No widget needed — calls route directly to Nova.
+    </div>
+  </div>
+</div>
+
+<script>
+var _widgetCode = '';
+function openWidget(id, code) {{
+  _widgetCode = code;
+  document.getElementById('widget-code-display').textContent = code;
+  document.getElementById('widget-name').textContent = 'Business: ' + id;
+  document.getElementById('widget-modal').classList.add('open');
+}}
+function closeWidget() {{
+  document.getElementById('widget-modal').classList.remove('open');
+}}
+function copyWidget() {{
+  navigator.clipboard.writeText(_widgetCode).then(function() {{
+    document.querySelector('.copy-btn').textContent = 'Copied!';
+    setTimeout(function() {{ document.querySelector('.copy-btn').textContent = 'Copy Code'; }}, 2000);
+  }});
+}}
+document.getElementById('widget-modal').addEventListener('click', function(e) {{
+  if (e.target === this) closeWidget();
+}});
+</script>
+
 </body></html>"""
 
 
