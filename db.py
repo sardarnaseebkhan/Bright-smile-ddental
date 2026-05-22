@@ -39,6 +39,7 @@ def init_db():
                 owner_email     TEXT NOT NULL,
                 assistant_name  TEXT DEFAULT '',
                 first_message   TEXT DEFAULT '',
+                agent_name      TEXT DEFAULT 'Aria',
                 vapi_assistant_id TEXT DEFAULT '',
                 active          INTEGER DEFAULT 1,
                 created_at      TEXT DEFAULT (datetime('now'))
@@ -82,8 +83,8 @@ def get(business_id: str) -> dict | None:
 
 def upsert(data: dict):
     fields = ["id", "name", "phone", "address", "hours_mon_fri", "hours_sat", "hours_sun",
-              "services", "insurance", "owner_email", "assistant_name", "first_message",
-              "vapi_assistant_id", "active"]
+              "services", "insurance", "owner_email", "agent_name", "assistant_name",
+              "first_message", "vapi_assistant_id", "active"]
     placeholders = ", ".join(f":{f}" for f in fields)
     updates = ", ".join(f"{f}=excluded.{f}" for f in fields if f != "id")
     with _conn() as c:

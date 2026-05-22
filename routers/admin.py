@@ -137,9 +137,13 @@ _MODAL = """
           <label>Insurance Accepted (comma-separated)</label>
           <textarea name="insurance" id="f-insurance" placeholder="Delta Dental, MetLife, Cigna..."></textarea>
         </div>
-        <div class="form-full">
-          <label>Assistant Name (optional)</label>
-          <input name="assistant_name" id="f-asst" placeholder="Nova — Bright Smiles Dental Receptionist">
+        <div>
+          <label>Agent Name (receptionist name callers hear)</label>
+          <input name="agent_name" id="f-agent" placeholder="Aria">
+        </div>
+        <div>
+          <label>Assistant Name (label in VAPI dashboard)</label>
+          <input name="assistant_name" id="f-asst" placeholder="Aria — Bright Smiles Dental">
         </div>
         <div class="form-full">
           <label>First Message (optional)</label>
@@ -177,6 +181,7 @@ function openEdit(d) {
   document.getElementById('f-hsun').value = d.hours_sun;
   document.getElementById('f-services').value = d.services;
   document.getElementById('f-insurance').value = d.insurance;
+  document.getElementById('f-agent').value = d.agent_name || 'Aria';
   document.getElementById('f-asst').value = d.assistant_name;
   document.getElementById('f-first').value = d.first_message;
   document.getElementById('modal').classList.add('open');
@@ -383,6 +388,7 @@ async def save(
     hours_sun: str = Form("Closed"),
     services: str = Form(""),
     insurance: str = Form(""),
+    agent_name: str = Form("Aria"),
     assistant_name: str = Form(""),
     first_message: str = Form(""),
 ):
@@ -394,6 +400,7 @@ async def save(
         "id": biz_id, "name": name, "phone": phone, "owner_email": owner_email,
         "address": address, "hours_mon_fri": hours_mon_fri, "hours_sat": hours_sat,
         "hours_sun": hours_sun, "services": services, "insurance": insurance,
+        "agent_name": agent_name or "Aria",
         "assistant_name": assistant_name, "first_message": first_message,
         "vapi_assistant_id": vapi_id, "active": 1,
     })

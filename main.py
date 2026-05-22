@@ -33,7 +33,7 @@ async def health():
     businesses = db.get_all()
     return {
         "status": "ok",
-        "version": "voice-agent-v8",
+        "version": "aria-prompt-v9",
         "businesses": len(businesses),
         "resend_configured": key.startswith("re_"),
         "from_email": os.environ.get("FROM_EMAIL") or "onboarding@resend.dev",

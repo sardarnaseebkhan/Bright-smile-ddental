@@ -72,8 +72,9 @@ def _build_payload(biz: dict) -> dict:
         for name, params in _TOOL_PARAMS.items()
     ]
 
-    assistant_name = biz.get("assistant_name") or f"Nova — {biz['name']}"
-    first_message = biz.get("first_message") or f"Thank you for calling {biz['name']}, this is Nova! How can I help you today?"
+    agent_name = biz.get("agent_name") or "Aria"
+    assistant_name = biz.get("assistant_name") or f"{agent_name} — {biz['name']}"
+    first_message = biz.get("first_message") or f"Thank you for calling {biz['name']}, this is {agent_name} speaking — how can I help you today?"
 
     return {
         "name": assistant_name,
